@@ -72,8 +72,7 @@ export async function exchangeAuthorizationCode(
 		}),
 	});
 	if (!res.ok) {
-		const text = await res.text().catch(() => "");
-		console.error("[openai-codex-plugin] code->token failed:", res.status, text);
+		console.error("[openai-codex-plugin] code->token failed:", res.status);
 		return { type: "failed" };
 	}
 	const json = (await res.json()) as {
@@ -86,7 +85,7 @@ export async function exchangeAuthorizationCode(
 		!json?.refresh_token ||
 		typeof json?.expires_in !== "number"
 	) {
-		console.error("[openai-codex-plugin] token response missing fields:", json);
+		console.error("[openai-codex-plugin] token response missing required fields");
 		return { type: "failed" };
 	}
 	return {
@@ -132,11 +131,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
 		});
 
 		if (!response.ok) {
-			const text = await response.text().catch(() => "");
 			console.error(
 				"[openai-codex-plugin] Token refresh failed:",
 				response.status,
-				text,
 			);
 			return { type: "failed" };
 		}
@@ -153,7 +150,6 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
 		) {
 			console.error(
 				"[openai-codex-plugin] Token refresh response missing fields:",
-				json,
 			);
 			return { type: "failed" };
 		}
@@ -165,8 +161,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
 			expires: Date.now() + json.expires_in * 1000,
 		};
 	} catch (error) {
-		const err = error as Error;
-		console.error("[openai-codex-plugin] Token refresh error:", err);
+		console.error("[openai-codex-plugin] Token refresh request failed");
 		return { type: "failed" };
 	}
 }

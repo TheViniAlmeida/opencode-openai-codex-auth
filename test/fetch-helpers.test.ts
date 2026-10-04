@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as authModule from '../lib/auth/auth.js';
 import {
     shouldRefreshToken,
-    refreshAndUpdateToken,
+    refreshOAuthCredential,
     extractRequestUrl,
     rewriteUrlForCodex,
     createCodexHeaders,
@@ -18,18 +18,18 @@ describe('Fetch Helpers Module', () => {
 
 	describe('shouldRefreshToken', () => {
 		it('should return true for non-oauth auth', () => {
-			const auth: Auth = { type: 'api', key: 'test-key' };
+			const auth: Auth = { type: 'key', key: 'test-key' };
 			expect(shouldRefreshToken(auth)).toBe(true);
 		});
 
 		it('should return true when access token is missing', () => {
-			const auth: Auth = { type: 'oauth', access: '', refresh: 'refresh-token', expires: Date.now() + 1000 };
+			const auth: Auth = { type: 'oauth', methodID: 'chatgpt-browser' as any, access: '', refresh: 'refresh-token', expires: Date.now() + 1000 };
 			expect(shouldRefreshToken(auth)).toBe(true);
 		});
 
 		it('should return true when token is expired', () => {
 			const auth: Auth = {
-				type: 'oauth',
+				type: 'oauth', methodID: 'chatgpt-browser' as any,
 				access: 'access-token',
 				refresh: 'refresh-token',
 				expires: Date.now() - 1000 // expired
@@ -39,7 +39,7 @@ describe('Fetch Helpers Module', () => {
 
 		it('should return false for valid oauth token', () => {
 			const auth: Auth = {
-				type: 'oauth',
+				type: 'oauth', methodID: 'chatgpt-browser' as any,
 				access: 'access-token',
 				refresh: 'refresh-token',
 				expires: Date.now() + 10000 // valid for 10 seconds
@@ -48,18 +48,16 @@ describe('Fetch Helpers Module', () => {
 		});
 	});
 
-	describe('refreshAndUpdateToken', () => {
+	describe('refreshOAuthCredential', () => {
 		it('throws when refresh fails', async () => {
-			const auth: Auth = { type: 'oauth', access: 'old', refresh: 'bad', expires: 0 };
-			const client = { auth: { set: vi.fn() } } as any;
+			const auth: Auth = { type: 'oauth', methodID: 'chatgpt-browser' as any, access: 'old', refresh: 'bad', expires: 0 };
 			vi.spyOn(authModule, 'refreshAccessToken').mockResolvedValue({ type: 'failed' } as any);
 
-			await expect(refreshAndUpdateToken(auth, client)).rejects.toThrow();
+			await expect(refreshOAuthCredential(auth as any)).rejects.toThrow();
 		});
 
-		it('updates stored auth on success', async () => {
-			const auth: Auth = { type: 'oauth', access: 'old', refresh: 'oldr', expires: 0 };
-			const client = { auth: { set: vi.fn() } } as any;
+		it('returns refreshed auth for OpenCode to persist', async () => {
+			const auth: Auth = { type: 'oauth', methodID: 'chatgpt-browser' as any, access: 'old', refresh: 'oldr', expires: 0 };
 			vi.spyOn(authModule, 'refreshAccessToken').mockResolvedValue({
 				type: 'success',
 				access: 'new',
@@ -67,17 +65,10 @@ describe('Fetch Helpers Module', () => {
 				expires: 123,
 			} as any);
 
-			const updated = await refreshAndUpdateToken(auth, client);
+			const updated = await refreshOAuthCredential(auth as any);
 
-			expect(client.auth.set).toHaveBeenCalledWith({
-				path: { id: 'openai' },
-				body: {
-					type: 'oauth',
-					access: 'new',
-					refresh: 'newr',
-					expires: 123,
-				},
-			});
+			expect(updated.methodID).toBe('chatgpt-browser');
+			expect(auth.access).toBe('old');
 			expect(updated.access).toBe('new');
 			expect(updated.refresh).toBe('newr');
 			expect(updated.expires).toBe(123);

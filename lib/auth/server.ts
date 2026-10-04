@@ -14,6 +14,7 @@ const successHtml = fs.readFileSync(path.join(__dirname, "..", "oauth-success.ht
  * @returns Promise that resolves to server info
  */
 export function startLocalOAuthServer({ state }: { state: string }): Promise<OAuthServerInfo> {
+	let closed = false;
 	const server = http.createServer((req, res) => {
 		try {
 			const url = new URL(req.url || "", "http://localhost");
@@ -49,10 +50,10 @@ export function startLocalOAuthServer({ state }: { state: string }): Promise<OAu
 				resolve({
 					port: 1455,
 					ready: true,
-					close: () => server.close(),
+					close: () => { closed = true; server.close(); },
 					waitForCode: async () => {
 						const poll = () => new Promise<void>((r) => setTimeout(r, 100));
-						for (let i = 0; i < 600; i++) {
+						for (let i = 0; i < 600 && !closed; i++) {
 							const lastCode = (server as http.Server & { _lastCode?: string })._lastCode;
 							if (lastCode) return { code: lastCode };
 							await poll();

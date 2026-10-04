@@ -18,6 +18,18 @@ if (DEBUG_ENABLED && !LOGGING_ENABLED) {
 
 let requestCounter = 0;
 
+/** Keep credentials and model-visible content out of diagnostic output. */
+export function redactLogData(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(redactLogData);
+	if (!value || typeof value !== "object") return value;
+	return Object.fromEntries(Object.entries(value).map(([key, data]) => [
+		key,
+		/authorization|cookie|token|secret|password|api.?key|account.?id|^body$|^input$|^messages$|^instructions$|^fullContent$/i.test(key)
+			? "[redacted]"
+			: redactLogData(data),
+	]));
+}
+
 /**
  * Log request data to file (only when LOGGING_ENABLED is true)
  * @param stage - The stage of the request (e.g., "before-transform", "after-transform")
@@ -44,7 +56,7 @@ export function logRequest(stage: string, data: Record<string, unknown>): void {
 					timestamp,
 					requestId,
 					stage,
-					...data,
+					...redactLogData(data) as Record<string, unknown>,
 				},
 				null,
 				2,
@@ -67,7 +79,7 @@ export function logDebug(message: string, data?: unknown): void {
 	if (!DEBUG_ENABLED) return;
 
 	if (data !== undefined) {
-		console.log(`[${PLUGIN_NAME}] ${message}`, data);
+		console.log(`[${PLUGIN_NAME}] ${message}`, redactLogData(data));
 	} else {
 		console.log(`[${PLUGIN_NAME}] ${message}`);
 	}
@@ -81,7 +93,7 @@ export function logDebug(message: string, data?: unknown): void {
 export function logWarn(message: string, data?: unknown): void {
 	if (!DEBUG_ENABLED && !LOGGING_ENABLED) return;
 	if (data !== undefined) {
-		console.warn(`[${PLUGIN_NAME}] ${message}`, data);
+		console.warn(`[${PLUGIN_NAME}] ${message}`, redactLogData(data));
 	} else {
 		console.warn(`[${PLUGIN_NAME}] ${message}`);
 	}

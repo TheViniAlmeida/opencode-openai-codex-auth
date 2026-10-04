@@ -9,7 +9,7 @@
   "author": "Numman Ali",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/numman-ali/opencode-openai-codex-auth.git"
+    "url": "git+https://github.com/TheViniAlmeida/opencode-openai-codex-auth.git"
   },
   "keywords": [
     "opencode",
@@ -23,9 +23,9 @@
     "chatgpt-plus",
     "chatgpt-pro"
   ],
-  "homepage": "https://github.com/numman-ali/opencode-openai-codex-auth#readme",
+  "homepage": "https://github.com/TheViniAlmeida/opencode-openai-codex-auth#readme",
   "bugs": {
-    "url": "https://github.com/numman-ali/opencode-openai-codex-auth/issues"
+    "url": "https://github.com/TheViniAlmeida/opencode-openai-codex-auth/issues"
   },
   "scripts": {
     "build": "tsc && cp lib/oauth-success.html dist/lib/",
@@ -39,6 +39,7 @@
     "opencode-openai-codex-auth": "./scripts/install-opencode-codex-auth.js"
   },
   "files": [
+    "server.js",
     "dist/",
     "assets/",
     "config/",
@@ -49,12 +50,7 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "peerDependencies": {
-    "@opencode-ai/plugin": "^1.0.150"
-  },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.0.150",
-    "@opencode-ai/sdk": "^1.0.150",
     "@types/node": "^24.6.2",
     "@vitest/ui": "^3.2.4",
     "typescript": "^5.9.3",
@@ -63,10 +59,21 @@
   "dependencies": {
     "@openauthjs/openauth": "^0.4.3",
     "hono": "^4.10.4",
-    "jsonc-parser": "^3.3.1"
+    "jsonc-parser": "^3.3.1",
+    "@opencode/plugin": "2.0.22"
   },
   "overrides": {
     "hono": "^4.10.4",
     "vite": "^7.1.12"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "import": "./server.js"
+    }
   }
 }

@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { LOGGING_ENABLED, logRequest } from '../lib/logger.js';
+import { LOGGING_ENABLED, logRequest, redactLogData } from '../lib/logger.js';
 
 describe('Logger Module', () => {
+	it('redacts credentials and model-visible content recursively', () => {
+		const result = redactLogData({ status: 200, body: { input: 'private-content' }, headers: { authorization: 'Bearer test-secret', 'set-cookie': 'test-cookie', 'chatgpt-account-id': 'test-account' }, nested: { access_token: 'test-access', refresh_token: 'test-refresh', apiKey: 'test-key' } });
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain('private-content');
+		for (const value of ['test-secret', 'test-cookie', 'test-account', 'test-access', 'test-refresh', 'test-key']) expect(serialized).not.toContain(value);
+		expect(serialized).toContain('200');
+	});
 	describe('LOGGING_ENABLED constant', () => {
 		it('should be a boolean', () => {
 			expect(typeof LOGGING_ENABLED).toBe('boolean');
