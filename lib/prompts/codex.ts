@@ -233,7 +233,10 @@ export async function getCodexInstructions(
 		console.error(
 			`[openai-codex-plugin] Falling back to bundled instructions for ${modelFamily}`,
 		);
-		return readFileSync(join(__dirname, "codex-instructions.md"), "utf8");
+		const bundled = join(__dirname, "codex-instructions.md");
+		return existsSync(bundled)
+			? readFileSync(bundled, "utf8")
+			: "You are a coding assistant. Follow the supplied session instructions and tool schemas. Preserve existing user changes and verify your work.";
 	}
 }
 

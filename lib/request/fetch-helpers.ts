@@ -3,8 +3,8 @@
  * These functions break down the complex fetch logic into manageable, testable units
  */
 
-import type { Auth } from "@opencode-ai/sdk";
-import type { OpencodeClient } from "@opencode-ai/sdk";
+import type { Credential } from "@opencode/plugin";
+import type { Auth } from "../types.js";
 import { refreshAccessToken } from "../auth/auth.js";
 import { logRequest } from "../logger.js";
 import { getCodexInstructions, getModelFamily } from "../prompts/codex.js";
@@ -31,41 +31,26 @@ export function shouldRefreshToken(auth: Auth): boolean {
 }
 
 /**
- * Refreshes the OAuth token and updates stored credentials
+ * Refreshes the OAuth token; OpenCode persists the returned credential
  * @param currentAuth - Current auth state
- * @param client - Opencode client for updating stored credentials
  * @returns Updated auth (throws on failure)
  */
-export async function refreshAndUpdateToken(
-	currentAuth: Auth,
-	client: OpencodeClient,
-): Promise<Auth> {
-	const refreshToken = currentAuth.type === "oauth" ? currentAuth.refresh : "";
-	const refreshResult = await refreshAccessToken(refreshToken);
+export async function refreshOAuthCredential(
+	currentAuth: Credential.OAuth,
+): Promise<Credential.OAuth> {
+	const refreshResult = await refreshAccessToken(currentAuth.refresh);
 
 	if (refreshResult.type === "failed") {
 		throw new Error(ERROR_MESSAGES.TOKEN_REFRESH_FAILED);
 	}
 
-	// Update stored credentials
-	await client.auth.set({
-		path: { id: "openai" },
-		body: {
-			type: "oauth",
-			access: refreshResult.access,
-			refresh: refreshResult.refresh,
-			expires: refreshResult.expires,
-		},
-	});
-
-	// Update current auth reference if it's OAuth type
-	if (currentAuth.type === "oauth") {
-		currentAuth.access = refreshResult.access;
-		currentAuth.refresh = refreshResult.refresh;
-		currentAuth.expires = refreshResult.expires;
-	}
-
-	return currentAuth;
+	// OpenCode persists the returned credential and coordinates concurrent refreshes.
+	return {
+		...currentAuth,
+		access: refreshResult.access,
+		refresh: refreshResult.refresh,
+		expires: refreshResult.expires,
+	};
 }
 
 /**
@@ -103,6 +88,7 @@ export async function transformRequestForCodex(
 	url: string,
 	userConfig: UserConfig,
 	codexMode = true,
+	bridgePrompt?: string,
 ): Promise<{ body: RequestBody; updatedInit: RequestInit } | undefined> {
 	if (!init?.body) return undefined;
 
@@ -136,6 +122,7 @@ export async function transformRequestForCodex(
 			codexInstructions,
 			userConfig,
 			codexMode,
+			bridgePrompt,
 		);
 
 		// Log transformed request
@@ -158,7 +145,7 @@ export async function transformRequestForCodex(
 			updatedInit: { ...init, body: JSON.stringify(transformedBody) },
 		};
 	} catch (e) {
-		console.error(`[${PLUGIN_NAME}] ${ERROR_MESSAGES.REQUEST_PARSE_ERROR}:`, e);
+		console.error(`[${PLUGIN_NAME}] ${ERROR_MESSAGES.REQUEST_PARSE_ERROR}`);
 		return undefined;
 	}
 }

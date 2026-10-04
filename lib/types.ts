@@ -1,4 +1,6 @@
-import type { Auth, Provider, Model } from "@opencode-ai/sdk";
+import type { Credential } from "@opencode/plugin";
+
+export type Auth = Credential.Value;
 
 /**
  * Plugin configuration from ~/.opencode/openai-codex-auth-config.json
@@ -175,4 +177,4 @@ export interface GitHubRelease {
 }
 
 // Re-export SDK types for convenience
-export type { Auth, Provider, Model };
+export type { Credential };

@@ -5,28 +5,35 @@ import { readFile, writeFile, mkdir, copyFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { parse, modify, applyEdits, printParseErrorCode } from "jsonc-parser";
+import { parse, modify, applyEdits, printParseErrorCode, visit } from "jsonc-parser";
 
 const PLUGIN_NAME = "opencode-openai-codex-auth";
 const args = new Set(process.argv.slice(2));
 
 if (args.has("--help") || args.has("-h")) {
-	console.log(`Usage: ${PLUGIN_NAME} [--modern|--legacy] [--uninstall] [--all] [--dry-run] [--no-cache-clear]\n\n` +
+	console.log(`Usage: ${PLUGIN_NAME} [--v2|--modern|--legacy] [--plugin <package-or-path>] [--uninstall] [--all] [--dry-run] [--no-cache-clear]\n\n` +
 		"Default behavior:\n" +
 		"  - Installs/updates global config at ~/.config/opencode/opencode.jsonc (falls back to .json)\n" +
-		"  - Uses modern config (variants) by default\n" +
+		"  - Uses native OpenCode V2 config by default\n" +
 		"  - Ensures plugin is unpinned (latest)\n" +
-		"  - Clears OpenCode plugin cache\n\n" +
+		"  - Leaves V2 cache management to OpenCode\n\n" +
 		"Options:\n" +
-		"  --modern           Force modern config (default)\n" +
-		"  --legacy           Use legacy config (older OpenCode versions)\n" +
+		"  --v2               Native OpenCode V2 config (default)\n" +
+		"  --plugin <target>   Use a built local package instead of the npm package\n" +
+		"  --modern           Emit the older V1 modern config syntax\n" +
+		"  --legacy           Emit the older V1 legacy config syntax\n" +
 		"  --uninstall        Remove plugin + OpenAI config entries from global config\n" +
-		"  --all              With --uninstall, also remove tokens, logs, and cached instructions\n" +
+		"  --all              Legacy-syntax mode only; unsupported for V2 credentials\n" +
 		"  --dry-run          Show actions without writing\n" +
 		"  --no-cache-clear   Skip clearing OpenCode cache\n"
 	);
 	process.exit(0);
 }
+
+const useV2 = args.has("--v2") || (!args.has("--modern") && !args.has("--legacy"));
+const pluginArg = process.argv.indexOf("--plugin");
+const pluginTarget = pluginArg === -1 ? PLUGIN_NAME : process.argv[pluginArg + 1];
+if (!pluginTarget || pluginTarget.startsWith("--")) throw new Error("--plugin requires a package or local path");
 
 const useLegacy = args.has("--legacy");
 const useModern = args.has("--modern") || !useLegacy;
@@ -40,7 +47,7 @@ const repoRoot = resolve(scriptDir, "..");
 const templatePath = join(
 	repoRoot,
 	"config",
-	useLegacy ? "opencode-legacy.json" : "opencode-modern.json"
+	useV2 ? "opencode-v2.json" : useLegacy ? "opencode-legacy.json" : "opencode-modern.json"
 );
 
 const configDir = join(homedir(), ".config", "opencode");
@@ -167,6 +174,8 @@ async function readJsonc(filePath) {
 }
 
 function applyJsoncUpdates(content, updates) {
+	const comments = [];
+	visit(content, { onComment: (offset, length) => comments.push(content.slice(offset, offset + length)) });
 	let next = content;
 	for (const update of updates) {
 		const edits = modify(next, update.path, update.value, {
@@ -174,6 +183,10 @@ function applyJsoncUpdates(content, updates) {
 		});
 		next = applyEdits(next, edits);
 	}
+	// jsonc-parser may remove comments attached to a replaced/deleted property.
+	// Preserve those comments at the top of the file after structural migration.
+	const missing = comments.filter((comment) => !next.includes(comment));
+	if (missing.length) next = `${missing.join("\n")}\n${next}`;
 	return next.endsWith("\n") ? next : `${next}\n`;
 }
 
@@ -284,7 +297,72 @@ async function clearPluginArtifacts() {
 	}
 }
 
+
+function convertProviderV2(provider) {
+ if (!provider || typeof provider !== "object") return {};
+ const { options, npm, api, models, ...rest } = provider;
+ const converted = { ...rest };
+ if (options) converted.settings = { ...options, ...rest.settings };
+ if (npm) converted.package = npm.startsWith("aisdk:") ? npm : "aisdk:" + npm;
+ if (api) converted.settings = { ...converted.settings, baseURL: api };
+ if (models) converted.models = Object.fromEntries(Object.entries(models).map(([id, model]) => {
+  const { options, id: modelID, modalities, tool_call, variants, ...rest } = model;
+  const native = { ...rest };
+  if (options) native.settings = { ...options, ...rest.settings };
+  if (modelID) native.modelID = modelID;
+  if (modalities || tool_call !== undefined) native.capabilities = { ...modalities, ...(tool_call !== undefined ? { tools: tool_call } : {}), ...rest.capabilities };
+  if (variants) native.variants = Array.isArray(variants) ? variants : Object.entries(variants).map(([id, settings]) => ({ id, settings }));
+  return [id, native];
+ }));
+ return converted;
+}
+
+async function mainV2() {
+ if (uninstallAll) throw new Error("V2 credentials belong to OpenCode integrations; --all is unsupported. Use opencode auth logout explicitly.");
+ const configPath = resolveConfigPath();
+ const exists = existsSync(configPath);
+ const { content, data: existing } = exists ? await readJsonc(configPath) : { content: "{}\n", data: {} };
+ const template = await readJson(templatePath);
+ const entries = [...(existing.plugin ?? []), ...(existing.plugins ?? [])];
+ const plugins = entries.filter((entry) => {
+  const target = typeof entry === "string" ? entry : entry?.package;
+  return target !== pluginTarget && !(typeof target === "string" && (target === PLUGIN_NAME || target.startsWith(PLUGIN_NAME + "@")));
+ });
+ if (!uninstallRequested) plugins.push(pluginTarget);
+ const legacy = existing.provider?.openai;
+ const configured = convertProviderV2(existing.providers?.openai ?? legacy);
+ const defaults = template.providers.openai;
+ const openai = uninstallRequested ? configured : {
+  ...defaults, ...configured,
+  settings: { ...defaults.settings, ...configured.settings },
+  body: { ...defaults.body, ...configured.body },
+  ...(configured.models ? { models: configured.models } : {}),
+ };
+ if (uninstallRequested) {
+  const known = new Set(Object.keys(defaults.models ?? {}));
+  if (openai.models) openai.models = Object.fromEntries(Object.entries(openai.models).filter(([id]) => !known.has(id)));
+ }
+ const updates = [
+  { path: ["plugin"], value: undefined },
+  { path: ["plugins"], value: plugins },
+  { path: ["providers", "openai"], value: openai },
+ ];
+ if (legacy) {
+  const remaining = { ...existing.provider };
+  delete remaining.openai;
+  updates.push({ path: ["provider"], value: Object.keys(remaining).length ? remaining : undefined });
+ }
+ const next = applyJsoncUpdates(content, updates);
+ if (dryRun) { log("[dry-run] Would update " + configPath + " using V2 config; OpenCode manages its own package cache."); return; }
+ if (exists) log("Backup created: " + await backupConfig(configPath));
+ await mkdir(configDir, { recursive: true });
+ await writeFile(configPath, next, "utf-8");
+ log("Updated " + configPath + " (V2)");
+ log("Restart or reload OpenCode V2 to load the plugin.");
+}
+
 async function main() {
+	if (useV2) return mainV2();
 	if (!existsSync(templatePath)) {
 		throw new Error(`Config template not found at ${templatePath}`);
 	}

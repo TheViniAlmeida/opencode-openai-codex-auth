@@ -41,6 +41,12 @@ export function normalizeModel(model: string | undefined): string {
 		return mappedModel;
 	}
 
+	// Preserve newer canonical models supplied by the V2 catalog.
+	const version = /^gpt-(\d+)(?:\.(\d+))?(?:-|$)/.exec(modelId);
+	if (version && (Number(version[1]) > 5 || Number(version[2]) > 2)) {
+		return modelId;
+	}
+
 	// Fallback: Pattern-based matching for unknown/custom model names
 	// This preserves backwards compatibility with old verbose names
 	// like "GPT 5 Codex Low (ChatGPT Subscription)"
@@ -194,6 +200,14 @@ export function getReasoningConfig(
 	userConfig: ConfigOptions = {},
 ): ReasoningConfig {
 	const normalizedName = modelName?.toLowerCase() ?? "";
+	const version = /^gpt-(\d+)(?:\.(\d+))?(?:-|$)/.exec(normalizedName);
+	if (version && (Number(version[1]) > 5 || Number(version[2]) > 2)) {
+		// V2's catalog resolves supported options for newer models.
+		return {
+			effort: userConfig.reasoningEffort === "minimal" ? "low" : userConfig.reasoningEffort ?? "medium",
+			summary: userConfig.reasoningSummary ?? "auto",
+		};
+	}
 
 	// GPT-5.2 Codex is the newest codex model (supports xhigh, but not "none")
 	const isGpt52Codex =
@@ -362,6 +376,7 @@ export async function filterOpenCodeSystemPrompts(
 export function addCodexBridgeMessage(
 	input: InputItem[] | undefined,
 	hasTools: boolean,
+	bridgePrompt = CODEX_OPENCODE_BRIDGE,
 ): InputItem[] | undefined {
 	if (!hasTools || !Array.isArray(input)) return input;
 
@@ -371,7 +386,7 @@ export function addCodexBridgeMessage(
 		content: [
 			{
 				type: "input_text",
-				text: CODEX_OPENCODE_BRIDGE,
+				text: bridgePrompt,
 			},
 		],
 	};
@@ -388,6 +403,7 @@ export function addCodexBridgeMessage(
 export function addToolRemapMessage(
 	input: InputItem[] | undefined,
 	hasTools: boolean,
+	bridgePrompt = TOOL_REMAP_MESSAGE,
 ): InputItem[] | undefined {
 	if (!hasTools || !Array.isArray(input)) return input;
 
@@ -397,7 +413,7 @@ export function addToolRemapMessage(
 		content: [
 			{
 				type: "input_text",
-				text: TOOL_REMAP_MESSAGE,
+				text: bridgePrompt,
 			},
 		],
 	};
@@ -424,6 +440,7 @@ export async function transformRequestBody(
 	codexInstructions: string,
 	userConfig: UserConfig = { global: {}, models: {} },
 	codexMode = true,
+	bridgePrompt?: string,
 ): Promise<RequestBody> {
 	const originalModel = body.model;
 	const normalizedModel = normalizeModel(body.model);
@@ -486,10 +503,10 @@ export async function transformRequestBody(
 		if (codexMode) {
 			// CODEX_MODE: Remove OpenCode system prompt, add bridge prompt
 			body.input = await filterOpenCodeSystemPrompts(body.input);
-			body.input = addCodexBridgeMessage(body.input, !!body.tools);
+			body.input = addCodexBridgeMessage(body.input, !!body.tools, bridgePrompt);
 		} else {
 			// DEFAULT MODE: Keep original behavior with tool remap message
-			body.input = addToolRemapMessage(body.input, !!body.tools);
+			body.input = addToolRemapMessage(body.input, !!body.tools, bridgePrompt);
 		}
 
 		// Handle orphaned function_call_output items (where function_call was an item_reference that got filtered)

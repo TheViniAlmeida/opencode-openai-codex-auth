@@ -1,76 +1,85 @@
-![Image 1: opencode-openai-codex-auth](assets/readme-hero.svg)
-  
-  
-**Curated by [Numman Ali](https://x.com/nummanali)**
-[![Twitter Follow](https://img.shields.io/twitter/follow/nummanali?style=social)](https://x.com/nummanali)
-[![npm version](https://img.shields.io/npm/v/opencode-openai-codex-auth.svg)](https://www.npmjs.com/package/opencode-openai-codex-auth)
-[![Tests](https://github.com/numman-ali/opencode-openai-codex-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/numman-ali/opencode-openai-codex-auth/actions)
-[![npm downloads](https://img.shields.io/npm/dm/opencode-openai-codex-auth.svg)](https://www.npmjs.com/package/opencode-openai-codex-auth)
-**One install. Every Codex model.**
-[Install](#-quick-start) · [Models](#-models) · [Configuration](#-configuration) · [Docs](#-docs)
+![opencode-openai-codex-auth](assets/readme-hero.svg)
 
----
-## 💡 Philosophy
-> **"One config. Every model."**
-OpenCode should feel effortless. This plugin keeps the setup minimal while giving you full GPT‑5.x + Codex access via ChatGPT OAuth.
-```
-┌─────────────────────────────────────────────────────────┐
-│                                                         │
-│  ChatGPT OAuth → Codex backend → OpenCode               │
-│  One command install, full model presets, done.         │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
----
-## 🚀 Quick Start
-```bash
-npx -y opencode-openai-codex-auth@latest
-```
-Then:
-```bash
-opencode auth login
-opencode run "write hello world to test.txt" --model=openai/gpt-5.2 --variant=medium
-```
-Legacy OpenCode (v1.0.209 and below):
-```bash
-npx -y opencode-openai-codex-auth@latest --legacy
-opencode run "write hello world to test.txt" --model=openai/gpt-5.2-medium
-```
-Uninstall:
-```bash
-npx -y opencode-openai-codex-auth@latest --uninstall
-npx -y opencode-openai-codex-auth@latest --uninstall --all
-```
----
-## 📦 Models
-- **gpt-5.2** (none/low/medium/high/xhigh)
-- **gpt-5.2-codex** (low/medium/high/xhigh)
-- **gpt-5.1-codex-max** (low/medium/high/xhigh)
-- **gpt-5.1-codex** (low/medium/high)
-- **gpt-5.1-codex-mini** (medium/high)
-- **gpt-5.1** (none/low/medium/high)
----
-## 🧩 Configuration
-- Modern (OpenCode v1.0.210+): `config/opencode-modern.json`
-- Legacy (OpenCode v1.0.209 and below): `config/opencode-legacy.json`
+# OpenCode V2 Codex OAuth plugin
 
-Minimal configs are not supported for GPT‑5.x; use the full configs above.
----
-## ✅ Features
-- ChatGPT Plus/Pro OAuth authentication (official flow)
-- 22 model presets across GPT‑5.2 / GPT‑5.2 Codex / GPT‑5.1 families
-- Variant system support (v1.0.210+) + legacy presets
-- Multimodal input enabled for all models
-- Usage‑aware errors + automatic token refresh
----
-## 📚 Docs
-- Getting Started: `docs/getting-started.md`
-- Configuration: `docs/configuration.md`
-- Troubleshooting: `docs/troubleshooting.md`
-- Architecture: `docs/development/ARCHITECTURE.md`
----
-## ⚠️ Usage Notice
-This plugin is for **personal development use** with your own ChatGPT Plus/Pro subscription.
-For production or multi‑user applications, use the OpenAI Platform API.
+This fork targets **OpenCode 2.0.22** and `@opencode/plugin` **2.0.22**.
+It uses your own ChatGPT subscription through OpenCode's OpenAI integration.
+The upstream npm package is not this fork. Build and configure
+[this repository](https://github.com/TheViniAlmeida/opencode-openai-codex-auth) as a local plugin.
 
-**Built for developers who value simplicity.**
+## Build and install
+
+```bash
+npm ci --ignore-scripts
+npm run typecheck
+npm test
+npm run build
+node scripts/install-opencode-codex-auth.js --v2 --plugin "$PWD"
+```
+
+The installer backs up an existing JSON/JSONC config, preserves comments and
+unrelated settings, migrates OpenAI settings into `providers.openai`, and writes
+`plugins`. It leaves credentials and OpenCode's package cache under OpenCode's
+management. `--dry-run` previews changes. Invalid existing configuration causes
+an error instead of replacement.
+
+For an existing setup that already has its models configured, add only the local
+plugin directory:
+
+```jsonc
+{
+  "plugins": ["/absolute/path/to/opencode-openai-codex-auth"]
+}
+```
+
+`config/opencode-v2.json` configures native V2 defaults. Models come from the
+current OpenCode catalog; this fork does not add retired V1 model presets. The older `--modern`
+and `--legacy` installer flags emit older configuration syntax, which V2 can
+normalize; the plugin implementation itself requires V2.
+
+## Authentication and use
+
+```bash
+opencode auth login openai
+opencode run --model openai/gpt-5.6-luna#low "Reply with OK without using tools"
+```
+
+Select the ChatGPT OAuth browser method or the manual redirect URL method.
+Existing OpenCode API-key and headless methods remain available. OpenCode owns
+credential storage and coordinates refreshes; accounts are resolved for every
+request, including after switching the active account. Each OS user keeps their
+own credentials.
+
+## V2 behavior
+
+- Stable plugin ID: `opencode-openai-codex-auth`.
+- Native HTTP and WebSocket request hooks support primary, title, compaction,
+  and transient generation requests.
+- Requests use the Codex endpoint, `store: false`, encrypted reasoning content,
+  and account-specific OAuth headers. Native V2 responses remain streamed.
+- Repository, agent, and user instructions are preserved. The tool bridge uses
+  the actual V2 tool schemas, including `shell` and `subagent` when available.
+- Newer canonical GPT model IDs remain unchanged instead of being downgraded
+  to an older model family.
+- OAuth listeners close after completion, timeout, or plugin unload. Manual
+  callbacks reject a supplied mismatched state.
+- Diagnostic logs redact credentials and model-visible request bodies.
+
+Plugin options can be provided in the config entry:
+
+```jsonc
+{
+  "plugins": [{
+    "package": "/absolute/path/to/opencode-openai-codex-auth",
+    "options": { "codexMode": true }
+  }]
+}
+```
+
+`CODEX_MODE` overrides the legacy plugin config file and the option above.
+The old `docs/` guides describe the inherited V1 implementation; use this README
+and `config/opencode-v2.json` for V2 installation.
+
+Official references: [Plugins](https://opencode.ai/v2/docs/plugins),
+[Plugin API](https://opencode.ai/v2/docs/build/plugins),
+[V1 plugin migration](https://opencode.ai/v2/docs/build/plugins/migrate-v1).
